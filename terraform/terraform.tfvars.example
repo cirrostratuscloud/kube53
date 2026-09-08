@@ -1,0 +1,13 @@
+# Copy to terraform.tfvars and adjust. All values are optional (defaults shown).
+
+# region         = "eu-west-1"
+# name           = "kube53"
+# cluster_domain = "kube53.example.com"
+# vpc_cidr       = "10.53.0.0/16"
+# az_count       = 2
+
+# Leave empty to auto-generate a token (recommended); read it from the
+# `kubeconfig_token` output afterwards.
+# api_token = ""
+
+# reconcile_interval_minutes = 1

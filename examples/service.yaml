@@ -1,0 +1,43 @@
+# The most basic real Kubernetes workload: a Deployment plus a Service that
+# selects it by label. No kube53-specific annotations required.
+#
+#   kubectl apply -f examples/service.yaml
+#
+# The reconciler reads the image/replicas/port from the Deployment's pod spec,
+# matches it to the Service by label selector, and builds an ECS service behind
+# the shared ALB, reachable at https://web-default.kube53.example.com
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: default
+  labels:
+    app: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: nginx:latest
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: default
+spec:
+  selector:
+    app: web
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP

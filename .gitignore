@@ -1,0 +1,21 @@
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
+*.auto.tfvars
+!*.tfvars.example
+
+# Lambda build artifacts
+terraform/modules/kube53/.build/
+*.zip
+
+# Generated kubeconfig (contains the bearer token)
+kube53.kubeconfig
+*.kubeconfig
+
+# Python
+__pycache__/
+*.pyc

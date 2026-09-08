@@ -1,0 +1,21 @@
+# A CronJob becomes an EventBridge Scheduler schedule that RunTask's a Fargate
+# task on the ECS cluster. Standard 5-field cron is translated to EventBridge's
+# 6-field cron() expression by the reconciler.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: hello
+  namespace: default
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          annotations:
+            k53.io/image: "busybox:latest"
+        spec:
+          containers:
+            - name: hello
+              image: busybox:latest
+              command: ["sh", "-c", "echo hello from Route53 at $(date)"]

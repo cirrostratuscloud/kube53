@@ -1,0 +1,19 @@
+# An Ingress routes a hostname/path to a Service's target group on the shared ALB.
+# The referenced Service ("web") must exist so its target group is available.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: site
+  namespace: default
+spec:
+  rules:
+    - host: site.kube53.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 80
