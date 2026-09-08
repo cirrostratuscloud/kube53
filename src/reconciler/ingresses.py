@@ -33,15 +33,25 @@ def _backend_tg_arn(namespace, service_name):
     return tg["TargetGroupArn"] if tg else None
 
 
+def _cond_values(cond, typed_key):
+    """Values from a describe_rules condition, preferring the typed config.
+
+    ELBv2 returns host/path values under HostHeaderConfig/PathPatternConfig; the
+    legacy top-level Values is unreliable. Reading only legacy Values made dedup
+    miss existing rules, creating a duplicate rule every tick.
+    """
+    return cond.get(typed_key, {}).get("Values") or cond.get("Values", [])
+
+
 def _ensure_rule(listener_arn, host, path, tg_arn, priority_seed):
     rules = elb.describe_rules(ListenerArn=listener_arn).get("Rules", [])
     for r in rules:
         conds = r.get("Conditions", [])
-        hosts = [v for c in conds if c.get("Field") == "host-header" for v in c.get("Values", [])]
-        paths = [v for c in conds if c.get("Field") == "path-pattern" for v in c.get("Values", [])]
+        hosts = [v for c in conds if c.get("Field") == "host-header" for v in _cond_values(c, "HostHeaderConfig")]
+        paths = [v for c in conds if c.get("Field") == "path-pattern" for v in _cond_values(c, "PathPatternConfig")]
         if host in hosts and (not path or path in paths or (path + "*") in paths):
             return  # already routed
-    used = {int(r["Priority"]) for r in rules if r["Priority"].isdigit()}
+    used = {int(r.get("Priority", "")) for r in rules if r.get("Priority", "").isdigit()}
     priority = priority_seed
     while priority in used:
         priority += 1
@@ -88,9 +98,12 @@ def reconcile():
                     continue
                 _ensure_rule(listener, host, p.get("path", "/"), tg_arn, seed)
                 seed += 1
+            # One DNS record per Ingress host, pointing at the ALB.
             store.upsert_alias(host + ".", infra["dns_name"], infra["zone_id"])
-        ing.setdefault("status", {})["loadBalancer"] = {"ingress": [{"hostname": infra["dns_name"]}]}
-        store.put(ing, PLURAL)
+        desired_status = {"loadBalancer": {"ingress": [{"hostname": infra["dns_name"]}]}}
+        if ing.get("status") != desired_status:
+            ing["status"] = desired_status
+            store.put(ing, PLURAL)
         reconciled += 1
 
     return {"phase": "ReconcileIngresses", "count": reconciled}

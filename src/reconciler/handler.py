@@ -49,9 +49,19 @@ def ensure_cluster():
 
     The marker (`_cluster.k53.<domain>` TXT) is created declaratively by OpenTofu
     (aws_route53_record.cluster_marker). No marker -> we don't stand anything up.
+
+    We also require at least one workload (Service or CronJob) before creating
+    the cluster. Otherwise, when idle, this phase would recreate the cluster
+    every tick just for GarbageCollect to tear it down again (thrash). The
+    cluster comes up on the first tick after a workload is applied.
     """
     if not store.exists_marker(store.cluster_marker_name()):
         log("no _cluster marker; skipping cluster creation")
+        return {"phase": "EnsureCluster", "cluster": None}
+
+    has_workloads = bool(store.list_kind("services") or store.list_kind("cronjobs"))
+    if not has_workloads:
+        log("no workloads (Service/CronJob); skipping cluster creation")
         return {"phase": "EnsureCluster", "cluster": None}
 
     existing = ecs.describe_clusters(clusters=[A.CLUSTER_NAME]).get("clusters", [])

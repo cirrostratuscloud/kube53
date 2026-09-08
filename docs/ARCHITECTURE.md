@@ -35,7 +35,16 @@ practical size ceiling. We serialize the object to JSON, base64 it, and split in
 ```
 
 Readers concatenate all chunks, base64-decode, and `json.loads`. If an object is too
-large for a single record set, the apiserver rejects the write with `413`.
+large for a single record set (~4000 chars of base64 across all chunks), the apiserver
+rejects the write with `413 RequestEntityTooLarge`.
+
+To keep objects small, the apiserver strips the
+`kubectl.kubernetes.io/last-applied-configuration` annotation before storing. `kubectl
+apply` stuffs the entire manifest into that annotation for its client-side 3-way merge,
+which roughly doubles the object and blows the record-set ceiling; we never read it, so
+it's dropped. (Consequence: an object with a large inline body — e.g. a container
+`command` that writes a big HTML page — must still fit; keep such payloads compact, or
+they'll `413`.)
 
 ### Metadata we synthesize
 
@@ -56,7 +65,7 @@ one Lambda. It implements just enough of the Kubernetes REST surface for kubectl
 | `GET /apis/{group}/{version}` | resources in a group |
 | `GET /api/v1` | core v1 resources (services, namespaces) |
 | `GET /version` | fake version so `kubectl version` is happy |
-| `GET /openapi/v2`,`/openapi/v3*` | minimal/empty schema docs |
+| `GET /openapi/v2`,`/openapi/v3*` | empty schema docs (see "OpenAPI dance" below) |
 | `GET .../{plural}` | list — scans TXT records for that kind |
 | `GET .../{plural}/{name}` | get one |
 | `POST .../{plural}` | create — writes a TXT record |
@@ -70,6 +79,25 @@ This is the token baked into the generated kubeconfig.
 `kubectl apply` uses client-side apply by default (`kubectl apply` → GET then PATCH or
 POST). We support the apply-patch content types well enough that `kubectl apply -f`,
 `kubectl get`, `kubectl delete` all work against our supported kinds.
+
+### Making client-side validation happy (the OpenAPI dance)
+
+`kubectl apply` runs client-side schema validation before sending anything. Getting
+it to pass against a fake apiserver is fiddly — kubectl's fallback chain tries several
+endpoints and rejects malformed responses in different ways. What actually works:
+
+- `GET /openapi/v3` → `200 {"paths": {}}` (JSON): an empty v3 discovery, so kubectl
+  finds no per-group schema and falls back to v2.
+- `GET /openapi/v2` with `Accept: ...+protobuf` → `200`, **empty body**, Content-Type
+  `application/octet-stream`. kubectl parses this as an empty OpenAPI document, so
+  validation has nothing to check and passes as a no-op.
+
+Responses that DON'T work (each fails differently, all observed against a real
+kubectl): JSON body on the protobuf v2 request → "cannot parse invalid wire-format
+data"; `404` → "could not find the requested resource"; empty body with the literal
+`application/...@v1.0+protobuf` media type → "mime: unexpected content after media
+subtype". The empty-body + `application/octet-stream` combination is the one that
+sidesteps all three. `--validate=false` remains a fallback but isn't needed.
 
 ### Synthetic, read-only Pods
 

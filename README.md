@@ -6,6 +6,11 @@ Route53 is already the best database AWS offers, as well as a very fine filesyst
 
 ---
 
+> ⚠️ **This is a joke.** kube53 is a for-fun experiment in misusing AWS primitives —
+> not a real Kubernetes distribution and not fit for production (or any serious) use.
+> It runs real, billable AWS resources and cuts every corner a real control plane
+> wouldn't. Enjoy it as a curiosity; don't run anything you care about on it.
+
 ## Overview
 
 - **Route53 is etcd.** Every Kubernetes object you `kubectl apply` is serialized and

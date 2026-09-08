@@ -19,3 +19,6 @@ kube53.kubeconfig
 # Python
 __pycache__/
 *.pyc
+
+# Scratch / working directory
+tmp/

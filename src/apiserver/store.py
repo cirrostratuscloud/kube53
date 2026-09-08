@@ -107,6 +107,14 @@ def put(obj: dict, kind_plural: str) -> dict:
     namespace = md.get("namespace", "default")
     md["namespace"] = namespace
 
+    # kubectl apply stores the ENTIRE manifest again inside this annotation for
+    # its client-side 3-way merge. In our tiny Route53 TXT datastore that roughly
+    # doubles the object size and blows the ~4000-char record-set ceiling. We
+    # never read it, so drop it before storing.
+    ann = md.get("annotations")
+    if ann:
+        ann.pop("kubectl.kubernetes.io/last-applied-configuration", None)
+
     existing = None
     try:
         existing = get(kind_plural, namespace, name)

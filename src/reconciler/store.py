@@ -208,3 +208,42 @@ def upsert_alias(name: str, target_dns: str, target_zone: str) -> None:
             },
         }]},
     )
+
+
+def list_alias_a_records() -> list[dict]:
+    """All ALIAS A records in the zone, as {name, alias_dns, alias_zone, raw}.
+
+    Used by GC to find the Service/Ingress alias records we created (they alias
+    to the shared ALB). Non-alias records and the Terraform-managed api.* alias
+    (which targets API Gateway, not the ALB) are returned too; callers filter by
+    alias target.
+    """
+    out = []
+    kwargs = {"HostedZoneId": HOSTED_ZONE_ID}
+    while True:
+        resp = r53.list_resource_record_sets(**kwargs)
+        for rr in resp.get("ResourceRecordSets", []):
+            if rr.get("Type") != "A" or "AliasTarget" not in rr:
+                continue
+            out.append({
+                "name": rr["Name"],
+                "alias_dns": rr["AliasTarget"]["DNSName"].rstrip("."),
+                "alias_zone": rr["AliasTarget"]["HostedZoneId"],
+                "raw": rr,
+            })
+        if resp.get("IsTruncated"):
+            kwargs.update(
+                StartRecordName=resp["NextRecordName"],
+                StartRecordType=resp["NextRecordType"],
+            )
+        else:
+            break
+    return out
+
+
+def delete_alias_record(rr: dict) -> None:
+    """Delete an alias A record given its raw ResourceRecordSet (from list_*)."""
+    r53.change_resource_record_sets(
+        HostedZoneId=HOSTED_ZONE_ID,
+        ChangeBatch={"Changes": [{"Action": "DELETE", "ResourceRecordSet": rr}]},
+    )

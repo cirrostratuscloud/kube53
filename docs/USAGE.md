@@ -88,6 +88,11 @@ kubectl get service web -o yaml     # note status.loadBalancer once reconciled
 The reconciler matches the Service's `selector` to the Deployment's pod labels and
 reads the image/replicas/port from the Deployment — the same way real Kubernetes does.
 
+> `kubectl apply` works with client-side validation on — the apiserver serves an
+> empty OpenAPI schema so validation is a no-op for kube53's types. If you're on an
+> older apiserver deploy and hit an OpenAPI/validation error, you can skip it with
+> `kubectl apply -f examples/service.yaml --validate=false`.
+
 Under the hood this wrote a TXT record. Prove it:
 
 ```bash

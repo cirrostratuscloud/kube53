@@ -37,16 +37,17 @@ annotation, we use that (the old inline shortcut still works).
 
 import store
 import awsenv as A
-from awsenv import ecs, elb, log
+from collections import namedtuple
+
+from awsenv import ecs, log
 import shared
 import taskdefs
 
 PLURAL = "services"
 KIND = "Service"
 
-
-def _host_for(namespace, name):
-    return f"{name}-{namespace}.{A.CLUSTER_DOMAIN}"
+# Resolved workload for a Service (from its Deployment, or inline annotation).
+_Workload = namedtuple("_Workload", "image replicas container_port deployment_name command")
 
 
 def _labels_match(selector: dict, labels: dict) -> bool:
@@ -57,7 +58,7 @@ def _labels_match(selector: dict, labels: dict) -> bool:
 
 
 def _find_workload(svc, deployments):
-    """Resolve (image, replicas, container_port, deployment_name) for a Service.
+    """Resolve a _Workload (image, replicas, port, deployment, command) for a Service.
 
     Prefers a Deployment whose pod-template labels match the Service selector.
     Falls back to the Service's k53.io/image annotation for back-compat.
@@ -84,15 +85,19 @@ def _find_workload(svc, deployments):
         replicas = int(dep.get("spec", {}).get("replicas", 1))
         cports = c0.get("ports", [])
         container_port = int(cports[0].get("containerPort", 80)) if cports else _svc_target_port(svc)
-        return image, replicas, container_port, dmd.get("name")
+        # k8s command -> ECS entrypoint, k8s args -> ECS command args. ECS has a
+        # single `command` list, so concatenate (the standard translation).
+        command = (c0.get("command") or []) + (c0.get("args") or []) or None
+        return _Workload(image, replicas, container_port, dmd.get("name"), command)
 
     # Fallback: inline annotation shortcut.
     ann = svc.get("metadata", {}).get("annotations", {})
     if ann.get("k53.io/image"):
-        return (
+        return _Workload(
             ann["k53.io/image"],
             int(ann.get("k53.io/replicas", "1")),
             _svc_target_port(svc),
+            None,
             None,
         )
     return None
@@ -106,7 +111,7 @@ def _svc_target_port(svc):
     return int(p.get("targetPort", p.get("port", 80)))
 
 
-def _register_task_def(namespace, name, image, port):
+def _register_task_def(namespace, name, image, port, command=None):
     family = A.aws_name("svc", namespace, name)
     container = {
         "name": name,
@@ -123,29 +128,11 @@ def _register_task_def(namespace, name, image, port):
             },
         },
     }
+    if command:
+        container["command"] = command
     # Idempotent: reuses the current ACTIVE revision unless the spec changed.
     arn, _created = taskdefs.ensure(family, container, KIND, namespace, name)
     return arn
-
-
-def _ensure_listener_rule(listener_arn, host, tg_arn, priority_seed):
-    """Host-header rule forwarding to the target group. Idempotent by host match."""
-    rules = elb.describe_rules(ListenerArn=listener_arn).get("Rules", [])
-    for r in rules:
-        for cond in r.get("Conditions", []):
-            if cond.get("Field") == "host-header" and host in cond.get("Values", []):
-                return r["RuleArn"]  # already routed
-    used = {int(r["Priority"]) for r in rules if r["Priority"].isdigit()}
-    priority = priority_seed
-    while priority in used:
-        priority += 1
-    elb.create_rule(
-        ListenerArn=listener_arn, Priority=priority,
-        Conditions=[{"Field": "host-header", "HostHeaderConfig": {"Values": [host]}}],
-        Actions=[{"Type": "forward", "TargetGroupArn": tg_arn}],
-        Tags=[{"Key": A.MANAGED_TAG_KEY, "Value": A.MANAGED_TAG_VAL}],
-    )
-    return None
 
 
 def _ensure_ecs_service(namespace, name, task_def_arn, tg_arn, container_port, replicas, task_sg):
@@ -198,6 +185,13 @@ def _ensure_ecs_service(namespace, name, task_def_arn, tg_arn, container_port, r
 
 
 def reconcile():
+    """Reconcile Services into ECS services + target groups only.
+
+    A Service on its own is INTERNAL — no ALB, no listener rule, no DNS record.
+    External exposure is the Ingress reconciler's job (it creates the ALB and
+    forwards to the target group we register here). This mirrors real Kubernetes:
+    a plain Service isn't reachable from outside the cluster; an Ingress exposes it.
+    """
     svcs = store.list_kind(PLURAL)
     if not svcs:
         log("no services")
@@ -205,12 +199,11 @@ def reconcile():
 
     deployments = store.list_kind("deployments")
 
-    infra = shared.ensure_alb()
-    listener = infra["https_listener"]
-    task_sg = infra["task_sg"]
+    # Only the task SG is needed to run tasks — NOT the ALB.
+    task_sg = shared.ensure_task_sg()
 
     reconciled = 0
-    for idx, svc in enumerate(svcs):
+    for svc in svcs:
         md = svc.get("metadata", {})
         name = md["name"]
         namespace = md.get("namespace", "default")
@@ -219,22 +212,19 @@ def reconcile():
         if not workload:
             log(f"service {namespace}/{name}: no matching Deployment (or k53.io/image); skipping")
             continue
-        image, replicas, container_port, dep_name = workload
-        source = f"deployment/{dep_name}" if dep_name else "annotation"
-        log(f"service {namespace}/{name}: image={image} replicas={replicas} port={container_port} via {source}")
+        w = workload
+        source = f"deployment/{w.deployment_name}" if w.deployment_name else "annotation"
+        log(f"service {namespace}/{name}: image={w.image} replicas={w.replicas} "
+            f"port={w.container_port} via {source}")
 
         tg_name = A.aws_name("svc", namespace, name)
-        tg_arn = shared.ensure_target_group(tg_name, container_port, A.object_key(KIND, namespace, name))
-        task_def = _register_task_def(namespace, name, image, container_port)
-        _ensure_ecs_service(namespace, name, task_def, tg_arn, container_port, replicas, task_sg)
+        tg_arn = shared.ensure_target_group(tg_name, w.container_port, A.object_key(KIND, namespace, name))
+        task_def = _register_task_def(namespace, name, w.image, w.container_port, w.command)
+        _ensure_ecs_service(namespace, name, task_def, tg_arn, w.container_port, w.replicas, task_sg)
 
-        host = _host_for(namespace, name)
-        _ensure_listener_rule(listener, host, tg_arn, 100 + idx)
-
-        store.upsert_alias(host + ".", infra["dns_name"], infra["zone_id"])
-        # Only write the object back if the status actually changed, otherwise we
-        # rewrite the Route53 TXT record (and bump resourceVersion) every tick.
-        desired_status = {"loadBalancer": {"ingress": [{"hostname": host}]}}
+        # ClusterIP-style status: reachable in-cluster via its target group. No
+        # external hostname unless an Ingress exposes it.
+        desired_status = {"loadBalancer": {}}
         if svc.get("status") != desired_status:
             svc["status"] = desired_status
             store.put(svc, PLURAL)

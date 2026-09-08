@@ -3,9 +3,13 @@
 #
 #   kubectl apply -f examples/service.yaml
 #
-# The reconciler reads the image/replicas/port from the Deployment's pod spec,
-# matches it to the Service by label selector, and builds an ECS service behind
-# the shared ALB, reachable at https://web-default.kube53.example.com
+# The reconciler reads the image/replicas/port (and command/args) from the
+# Deployment's pod spec, matches it to the Service by label selector, and builds
+# an ECS service. A Service alone is INTERNAL — apply examples/ingress.yaml to
+# expose it at https://site.kube53.example.com
+#
+# The container command overrides nginx's default page with a custom one, so you
+# don't need a bespoke image — stock nginx writes the HTML then serves it.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -28,6 +32,19 @@ spec:
           image: nginx:latest
           ports:
             - containerPort: 80
+          # Kept intentionally compact: the whole object is stored in a single
+          # Route53 TXT record set (~4000 char ceiling), so the inline page is
+          # minified rather than pretty-printed.
+          command:
+            - /bin/sh
+            - -c
+            - |
+              cat > /usr/share/nginx/html/index.html <<'HTML'
+              <!doctype html><meta charset=utf-8><title>kube53</title>
+              <style>body{font-family:system-ui,sans-serif;background:#0b1021;color:#e6e6e6;display:grid;place-items:center;height:100vh;margin:0}.c{text-align:center;padding:3rem;border:1px solid #26304d;border-radius:16px;background:#111834}h1{margin:0}p{color:#9fb3d1}code{color:#7ee787}</style>
+              <div class=c><h1>Kubernetes on Route53</h1><p>because why not.</p></div>
+              HTML
+              exec nginx -g 'daemon off;'
 ---
 apiVersion: v1
 kind: Service

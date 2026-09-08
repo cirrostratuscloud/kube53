@@ -131,6 +131,7 @@ data "aws_iam_policy_document" "reconciler" {
       "elasticloadbalancing:CreateListener",
       "elasticloadbalancing:DeleteListener",
       "elasticloadbalancing:DescribeListeners",
+      "elasticloadbalancing:ModifyListener",
       "elasticloadbalancing:CreateRule",
       "elasticloadbalancing:DeleteRule",
       "elasticloadbalancing:ModifyRule",

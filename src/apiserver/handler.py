@@ -223,14 +223,69 @@ def _replace(meta, group, version, plural, namespace, name, body):
 
 
 def _deep_merge(base, patch):
+    """Merge a patch into base, with enough strategic-merge-patch support that
+    `kubectl apply` works on Deployments/Services.
+
+    kubectl sends `application/strategic-merge-patch+json`. For lists of objects
+    keyed by `name` (containers, ports, env, ...) it patches elements BY name
+    rather than replacing the whole list, and emits `$setElementOrder/<field>`
+    ordering directives. A naive dict merge would (a) copy those directive keys
+    into storage and (b) replace a full container with the patch's partial one,
+    dropping image/ports. Handle both here.
+    """
     for k, v in patch.items():
+        # $setElementOrder/<field> and other $-directives are merge metadata, not
+        # data. We keep list order as-is, so just skip them.
+        if k.startswith("$setElementOrder/") or k.startswith("$"):
+            continue
         if v is None:
             base.pop(k, None)
         elif isinstance(v, dict) and isinstance(base.get(k), dict):
             _deep_merge(base[k], v)
+        elif isinstance(v, list) and _is_name_keyed(v) and isinstance(base.get(k), list):
+            base[k] = _merge_named_list(base[k], v)
         else:
             base[k] = v
     return base
+
+
+def _is_name_keyed(lst):
+    """True if this is a strategic-merge list keyed by `name` (all dicts w/ name)."""
+    return bool(lst) and all(isinstance(e, dict) and "name" in e for e in lst)
+
+
+def _merge_named_list(base_list, patch_list):
+    """Strategic merge of two lists of objects by their `name` merge key.
+
+    Patch elements update matching base elements in place (deep merge); new names
+    are appended. Base elements not mentioned in the patch are preserved. A patch
+    element with `{"$patch": "delete"}` removes the matching base element.
+    """
+    by_name = {}
+    order = []
+    for e in base_list:
+        if isinstance(e, dict) and "name" in e:
+            by_name[e["name"]] = dict(e)
+            order.append(e["name"])
+        else:
+            # non-keyed element: keep positionally under a synthetic key
+            order.append(id(e))
+            by_name[id(e)] = e
+
+    for pe in patch_list:
+        name = pe.get("name")
+        if pe.get("$patch") == "delete":
+            if name in by_name:
+                by_name.pop(name, None)
+                order = [o for o in order if o != name]
+            continue
+        if name in by_name and isinstance(by_name[name], dict):
+            _deep_merge(by_name[name], pe)
+        else:
+            by_name[name] = dict(pe)
+            order.append(name)
+
+    return [by_name[o] for o in order if o in by_name]
 
 
 def _patch(meta, group, version, plural, namespace, name, body, content_type):
@@ -302,6 +357,7 @@ def handler(event, context):
     headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
     body = event.get("body") or ""
     content_type = headers.get("content-type", "")
+    accept = headers.get("accept", "")
 
     # Auth: static bearer token.
     auth = headers.get("authorization", "")
@@ -323,7 +379,24 @@ def handler(event, context):
         return _resp(200, {"major": "1", "minor": "29", "gitVersion": "v1.29.0-kube53",
                            "platform": "route53/txt"})
     if disc == "openapi_v2":
-        # Swagger 2.0 JSON. kubectl's legacy validator accepts an empty doc.
+        # kubectl's validator fetches /openapi/v2 with a PROTOBUF Accept header.
+        # We can't produce a real protobuf OpenAPI document, and every attempt to
+        # fake one hits a different client-side error:
+        #   - JSON 200                 -> "cannot parse invalid wire-format data"
+        #   - 404                      -> "could not find the requested resource"
+        #   - empty body + the proto   -> "mime: unexpected content after media
+        #     media-type header           subtype" (the @v1.0 subtype is rejected
+        #                                  by Go's mime.ParseMediaType on responses)
+        # An empty body with a plain, valid media type avoids all three: nothing
+        # to parse, and a well-formed Content-Type. If a given kubectl still
+        # refuses to skip validation, `kubectl apply --validate=false` is the
+        # documented fallback (validation is meaningless for kube53's types).
+        if "protobuf" in accept:
+            return {
+                "statusCode": 200,
+                "headers": {"content-type": "application/octet-stream"},
+                "body": "",
+            }
         return _resp(200, {"swagger": "2.0", "info": {"title": "kube53", "version": "v1.29.0"}, "paths": {}})
     if disc == "openapi_v3_root":
         # v3 discovery is JSON. We advertise NO group schemas, so kubectl never
