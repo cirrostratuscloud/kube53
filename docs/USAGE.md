@@ -11,14 +11,14 @@
 ## 1. Create the zone first (so you can delegate it)
 
 ```bash
-tofu -chdir=terraform init
-tofu -chdir=terraform apply -target=aws_route53_zone.kube53
+tofu -chdir=infrastructure init
+tofu -chdir=infrastructure apply -target=aws_route53_zone.kube53
 ```
 
 Grab the nameservers to delegate:
 
 ```bash
-tofu -chdir=terraform output zone_ns_records
+tofu -chdir=infrastructure output zone_ns_records
 ```
 
 ## 2. Delegate in the parent zone (you do this by hand)
@@ -36,14 +36,14 @@ dig +short NS kube53.example.com
 ACM DNS validation only resolves once delegation is live, so do this after step 2.
 
 ```bash
-tofu -chdir=terraform apply
+tofu -chdir=infrastructure apply
 ```
 
 Outputs of interest:
 
 ```bash
-tofu -chdir=terraform output api_endpoint        # https://api.kube53...
-tofu -chdir=terraform output -raw kubeconfig_token
+tofu -chdir=infrastructure output api_endpoint        # https://api.kube53...
+tofu -chdir=infrastructure output -raw kubeconfig_token
 ```
 
 ## 4. Wait for the "cluster" to come up
@@ -202,7 +202,7 @@ kubectl delete -f examples/service.yaml
 ## 9. Force a reconcile (don't want to wait for the tick)
 
 ```bash
-SM=$(tofu -chdir=terraform output -raw reconcile_state_machine_arn 2>/dev/null \
+SM=$(tofu -chdir=infrastructure output -raw reconcile_state_machine_arn 2>/dev/null \
   || aws stepfunctions list-state-machines \
      --query "stateMachines[?name=='kube53-reconcile'].stateMachineArn" --output text)
 aws stepfunctions start-execution --state-machine-arn "$SM"
@@ -213,7 +213,7 @@ aws stepfunctions start-execution --state-machine-arn "$SM"
 ```bash
 kubectl delete -f examples/ --ignore-not-found
 # wait a tick for GC to remove ECS services / schedules / target groups, then:
-tofu -chdir=terraform destroy
+tofu -chdir=infrastructure destroy
 ```
 
 > If `destroy` complains about the ALB or ECS cluster, it's because the reconciler

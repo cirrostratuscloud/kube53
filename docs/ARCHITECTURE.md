@@ -64,7 +64,7 @@ one Lambda. It implements just enough of the Kubernetes REST surface for kubectl
 | `PATCH .../{plural}/{name}` | strategic/merge/apply patch (best-effort merge) |
 | `DELETE .../{plural}/{name}` | delete the TXT record |
 
-Auth: static bearer token (from Terraform) checked against the `Authorization` header.
+Auth: static bearer token (from Terraform/Tofu) checked against the `Authorization` header.
 This is the token baked into the generated kubeconfig.
 
 `kubectl apply` uses client-side apply by default (`kubectl apply` → GET then PATCH or

@@ -9,7 +9,7 @@ crash.log
 !*.tfvars.example
 
 # Lambda build artifacts
-terraform/modules/kube53/.build/
+infrastructure/modules/kube53/.build/
 *.zip
 
 # Generated kubeconfig (contains the bearer token)

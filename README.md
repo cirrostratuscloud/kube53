@@ -2,8 +2,7 @@
 
 **Kubernetes. On Route53.**
 
-`kube53` treats a Route53 hosted zone as the Kubernetes datastore and AWS primitives
-as the kubelet: *what if the Route53 zone **was** etcd, and ECS/ALB were the runtime?*
+Route53 is already the best database AWS offers, as well as a very fine filesystem. Starting today, it runs Kubernetes as well. Because why not.
 
 ---
 
@@ -47,7 +46,7 @@ kubectl ──HTTPS──▶ API Gateway ──▶ apiserver Lambda ──▶ Ro
 
 ```
 .
-├── terraform/
+├── infrastructure/
 │   ├── main.tf              # root: wires VPC + zone + ACM + kube53 module
 │   ├── variables.tf         # region (default eu-west-1), domain, cidr, etc.
 │   ├── outputs.tf           # NS records to delegate, api endpoint, kubeconfig hint
@@ -65,11 +64,11 @@ kubectl ──HTTPS──▶ API Gateway ──▶ apiserver Lambda ──▶ Ro
 
 ## Order of operations
 
-1. `tofu -chdir=terraform apply -target=aws_route53_zone.kube53`
+1. `tofu -chdir=infrastructure apply -target=aws_route53_zone.kube53`
    — create the zone first so you can delegate it.
 2. Delegate: create the `NS` records in the **parent** `example.com` zone using
-   the `zone_ns_records` output. (You do this by hand, as agreed.)
-3. `tofu -chdir=terraform apply` — everything else, including ACM
+   the `zone_ns_records` output.
+3. `tofu -chdir=infrastructure apply` — everything else, including ACM
    (DNS validation now resolves through the delegated zone).
 4. `./scripts/gen-kubeconfig.sh > kube53.kubeconfig`
 5. `kubectl --kubeconfig kube53.kubeconfig apply -f examples/service.yaml`

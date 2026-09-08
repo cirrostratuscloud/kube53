@@ -4,7 +4,7 @@
 # Usage:
 #   ./scripts/gen-kubeconfig.sh [API_ENDPOINT] [TOKEN] > kube53.kubeconfig
 #
-# If args are omitted, they're read from OpenTofu outputs in ../terraform.
+# If args are omitted, they're read from OpenTofu outputs in ../infrastructure.
 # The apiserver presents a real, ACM-issued cert on api.<cluster-domain>, so we
 # do NOT skip TLS verification — kubectl validates it like any cluster.
 set -euo pipefail
@@ -13,7 +13,7 @@ API_ENDPOINT="${1:-}"
 TOKEN="${2:-}"
 
 if [[ -z "${API_ENDPOINT}" || -z "${TOKEN}" ]]; then
-  TF_DIR="$(cd "$(dirname "$0")/../terraform" && pwd)"
+  TF_DIR="$(cd "$(dirname "$0")/../infrastructure" && pwd)"
   if [[ -z "${API_ENDPOINT}" ]]; then
     API_ENDPOINT="$(tofu -chdir="${TF_DIR}" output -raw api_endpoint)"
   fi

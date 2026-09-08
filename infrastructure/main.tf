@@ -3,8 +3,7 @@ provider "aws" {
 
   default_tags {
     tags = merge({
-      Project   = "kube53"
-      ManagedBy = "terraform"
+      Project = "kube53"
     }, var.tags)
   }
 }
