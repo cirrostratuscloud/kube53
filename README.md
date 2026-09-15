@@ -4,6 +4,8 @@
 
 Route53 is already the best database AWS offers, as well as a very fine filesystem. Starting today, it runs Kubernetes as well. Because why not.
 
+**[This repo is part of this LinkedIn post](https://www.linkedin.com/posts/yannickvanrooyen_ive-always-chuckled-about-the-meme-that-activity-7503446000922198016--JkW)**
+
 ---
 
 > ⚠️ **This is a joke.** kube53 is a for-fun experiment in misusing AWS primitives —
