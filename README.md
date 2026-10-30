@@ -6,6 +6,8 @@ Route53 is already the best database AWS offers, as well as a very fine filesyst
 
 **[This repo is part of this LinkedIn post](https://www.linkedin.com/posts/yannickvanrooyen_ive-always-chuckled-about-the-meme-that-activity-7503446000922198016--JkW)**
 
+**[We are featured in the lastweekinaws news letter!](https://www.lastweekinaws.com/newsletter/lambda-slowly-becomes-ec2-one-feature-at-a-time/)**
+
 ---
 
 > ⚠️ **This is a joke.** kube53 is a for-fun experiment in misusing AWS primitives —
