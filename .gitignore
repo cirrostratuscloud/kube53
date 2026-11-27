@@ -22,3 +22,6 @@ __pycache__/
 
 # Scratch / working directory
 tmp/
+
+# Mac dumbass
+.DS_Store
